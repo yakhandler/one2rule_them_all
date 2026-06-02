@@ -151,7 +151,8 @@ class Target:
         self.raw_text: str | None = None
         self.parsed: dict | None = None      # full parsed JSON object (json targets only)
         self.servers: dict[str, dict] = {}   # name -> normalized server entry
-        self.error: str | None = None
+        self.error: str | None = None        # read-time error (servers not included in union)
+        self.write_error: str | None = None  # apply-time skip (could not edit in place safely)
 
     @property
     def display(self) -> str:
@@ -497,11 +498,161 @@ def ordered_final(t: Target, final_map: dict[str, dict]) -> dict[str, dict]:
     return ordered
 
 
-def write_json_target(t: Target, final_map: dict[str, dict]) -> None:
-    data = dict(t.parsed) if isinstance(t.parsed, dict) else {}
+# --------------------------------------------------------------------------------------
+# Surgical JSON member splice — edit only the mcpServers value, keep the rest byte-for-byte
+# --------------------------------------------------------------------------------------
+# ~/.claude.json holds far more than MCP servers (auth tokens, project history, UI state) and
+# can be large, so re-serializing the whole file is needless risk. Instead we locate the
+# top-level `mcpServers` value in the RAW text and replace just that span (or insert the key
+# if absent), leaving every other byte untouched — the same "touch only the relevant section"
+# approach the Codex TOML writer uses. write_json_target verifies the spliced text by
+# re-parsing it before writing, and falls back to a full re-serialize if anything is off, so
+# corrupt JSON can never be emitted.
+def _skip_ws(s: str, i: int) -> int:
+    while i < len(s) and s[i] in " \t\r\n":
+        i += 1
+    return i
+
+
+def _skip_string(s: str, i: int) -> int:
+    """`s[i]` is the opening quote; return the index just past the closing quote."""
+    i += 1
+    while i < len(s):
+        c = s[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == '"':
+            return i + 1
+        i += 1
+    raise ValueError("unterminated string")
+
+
+def _skip_value(s: str, i: int) -> int:
+    """Return the index just past the JSON value beginning at `s[i]` (object/array matched
+    with brace depth, strings skipped wholesale, scalars run to the next delimiter)."""
+    c = s[i]
+    if c == '"':
+        return _skip_string(s, i)
+    if c in "{[":
+        depth = 0
+        while i < len(s):
+            c = s[i]
+            if c == '"':
+                i = _skip_string(s, i)
+                continue
+            if c in "{[":
+                depth += 1
+            elif c in "}]":
+                depth -= 1
+                if depth == 0:
+                    return i + 1
+            i += 1
+        raise ValueError("unterminated container")
+    j = i  # scalar: number / true / false / null
+    while j < len(s) and s[j] not in ",}] \t\r\n":
+        j += 1
+    return j
+
+
+def _find_top_level_member(text: str, root_brace: int, key: str):
+    """Return (value_start, value_end) of the root object's member `key`, or None if absent.
+
+    Each member value is skipped as a balanced unit, so a same-named key nested deeper (e.g.
+    projects.<path>.mcpServers) is never matched. Raises ValueError on anything unexpected."""
+    i = root_brace + 1
+    while True:
+        i = _skip_ws(text, i)
+        if i >= len(text):
+            raise ValueError("unterminated object")
+        if text[i] == "}":
+            return None
+        if text[i] == ",":
+            i = _skip_ws(text, i + 1)
+        if i >= len(text) or text[i] != '"':
+            raise ValueError("expected key")
+        k_start = i
+        k_end = _skip_string(text, i)
+        k = json.loads(text[k_start:k_end])
+        i = _skip_ws(text, k_end)
+        if i >= len(text) or text[i] != ":":
+            raise ValueError("expected ':'")
+        i = _skip_ws(text, i + 1)
+        v_start = i
+        v_end = _skip_value(text, i)
+        if k == key:
+            return v_start, v_end
+        i = v_end
+
+
+def _detect_json_style(text: str, root_brace: int):
+    """Infer (newline, indent_unit): CRLF vs LF, and the root members' leading-whitespace
+    string ('' when the object is written compact on a single line)."""
+    newline = "\r\n" if "\r\n" in text else "\n"
+    j = _skip_ws(text, root_brace + 1)
+    if j < len(text) and text[j] == "}":
+        return newline, ""  # empty object — style unknown, default compact
+    line_start = text.rfind("\n", 0, j) + 1
+    indent = text[line_start:j]
+    return (newline, indent) if (indent and indent.strip() == "") else (newline, "")
+
+
+def _splice_json_member(text: str, key: str, value):
+    """Replace (or insert) the TOP-LEVEL `key` value in valid JSON `text`, touching nothing
+    else. Returns the new text, or None if the structure isn't what we expect (caller then
+    falls back to a full re-serialize)."""
+    i = _skip_ws(text, 0)
+    if i >= len(text) or text[i] != "{":
+        return None
+    root_brace = i
+    newline, unit = _detect_json_style(text, root_brace)
+    if unit:  # indent the value to the member's level, matching the file's newline style
+        body = json.dumps(value, indent=unit, ensure_ascii=False).replace("\n", newline + unit)
+    else:
+        body = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    try:
+        span = _find_top_level_member(text, root_brace, key)
+    except ValueError:
+        return None
+    if span is not None:
+        v_start, v_end = span
+        return text[:v_start] + body + text[v_end:]
+    # key absent — insert it as the first member of the root object
+    after = _skip_ws(text, root_brace + 1)
+    head = text[:root_brace + 1]
+    if after < len(text) and text[after] == "}":  # empty root object
+        if unit:
+            return head + newline + unit + json.dumps(key) + ": " + body + newline + text[after:]
+        return head + json.dumps(key) + ":" + body + text[after:]
+    if unit:
+        return head + newline + unit + json.dumps(key) + ": " + body + "," + text[root_brace + 1:]
+    return head + json.dumps(key) + ":" + body + "," + text[root_brace + 1:]
+
+
+def render_json_target(t: Target, final_map: dict[str, dict]) -> str | None:
+    """Return the exact text to write for a JSON target, or None if an EXISTING file can't be
+    edited surgically.
+
+    For an existing file we splice only the `mcpServers` value and verify by re-parsing. If
+    that verification fails we return None — the caller then leaves the file untouched rather
+    than reformatting it (we never full-rewrite a file that already exists, so a large,
+    sensitive `~/.claude.json` is never reflowed). A not-yet-existing file has nothing to
+    preserve, so it is built fresh."""
     servers = {n: adapt_for_target(e, t.quirk) for n, e in ordered_final(t, final_map).items()}
-    data["mcpServers"] = servers
-    _atomic_write_text(t.path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    if t.raw_text is None:  # new file: nothing to preserve, build it from scratch
+        data = dict(t.parsed) if isinstance(t.parsed, dict) else {}
+        data["mcpServers"] = servers
+        return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    spliced = _splice_json_member(t.raw_text, "mcpServers", servers)
+    if spliced is not None:
+        expected = dict(t.parsed) if isinstance(t.parsed, dict) else {}
+        expected["mcpServers"] = servers
+        try:
+            if json.loads(spliced) == expected:
+                return spliced
+        except json.JSONDecodeError:
+            pass
+    return None  # surgical edit couldn't be verified -> caller skips this file (no rewrite)
 
 
 def write_toml_target(t: Target, final_map: dict[str, dict]) -> None:
@@ -568,6 +719,15 @@ def print_report(targets, sources, union, conflicts, resolved, unresolved,
         print(f"    + add ({len(adds)}): {fmt_list(adds)}")
         print(f"    ~ change ({len(changes)}): {fmt_list(changes)}")
         print(f"    = unchanged: {len(keeps)}")
+
+    write_skipped = [t for t in targets if t.write_error]
+    if write_skipped:
+        print("\n" + "!" * 78)
+        print("COULD NOT WRITE — left untouched (no file was reformatted, nothing lost):")
+        for t in write_skipped:
+            print(f"   - {t.display}: {t.write_error}\n     {t.path}")
+        print("These clients did NOT receive the update. Re-run to retry, or report the file.")
+        print("!" * 78)
 
     if unresolved:
         clients_in = sorted({ck for occ in unresolved.values() for ck, _ in occ})
@@ -691,11 +851,20 @@ def main(argv=None) -> int:
             adds, changes, _ = plans[t.key]
             if not adds and not changes:
                 continue
-            if t.exists:
-                backup_file(t.path, stamp)
             if t.fmt == "json":
-                write_json_target(t, final_map)
+                # Build (and verify) the surgically-edited text first; if it can't be done
+                # safely on an existing file, skip it — never back up or rewrite it.
+                text = render_json_target(t, final_map)
+                if text is None:
+                    t.write_error = ("could not edit in place safely (surgical splice failed "
+                                     "verification); left untouched to avoid reformatting it")
+                    continue
+                if t.exists:
+                    backup_file(t.path, stamp)
+                _atomic_write_text(t.path, text)
             else:
+                if t.exists:
+                    backup_file(t.path, stamp)
                 write_toml_target(t, final_map)
         applied = True
 
@@ -711,6 +880,7 @@ def main(argv=None) -> int:
                              "change": plans[t.key][1], "unchanged": len(plans[t.key][2])}
                      for t in readable},
             "skipped_errors": {t.key: t.error for t in targets if t.error},
+            "write_skipped": {t.key: t.write_error for t in targets if t.write_error},
             "not_installed": [t.key for t in targets if not t.exists],
         }, indent=2, ensure_ascii=False))
     else:
@@ -719,8 +889,8 @@ def main(argv=None) -> int:
 
     if unresolved:
         return 2
-    if any(t.error for t in targets):
-        return 3  # partial: ran, but some files were unreadable
+    if any(t.error or t.write_error for t in targets):
+        return 3  # partial: some files couldn't be read, or couldn't be edited in place
     return 0
 
 

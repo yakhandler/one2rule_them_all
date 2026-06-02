@@ -30,9 +30,15 @@ keys (used with `--only`/`--exclude`/`--prefer`) are in the first column.
 ## Format details the reconciler relies on
 
 - **Shared JSON schema.** Every client except Codex stores servers under a top-level
-  `mcpServers` object: `{ "mcpServers": { "<name>": { ... } } }`. The reconciler reads
-  the whole file, replaces only the `mcpServers` value, and re-dumps — preserving all
-  other top-level keys.
+  `mcpServers` object: `{ "mcpServers": { "<name>": { ... } } }`. The reconciler edits the
+  file **surgically** — it locates the top-level `mcpServers` value in the raw text and
+  replaces just that span (or inserts the key if absent), leaving every other byte
+  untouched (other keys, whitespace, key order, and project-scoped servers under
+  `projects.*.mcpServers`). The replaced block is re-serialized to match the file's own
+  indentation/newline style. The result is verified by re-parsing before it is written; if
+  the surgical edit can't be verified, that file is **left untouched** and reported (the run
+  exits code 3), never reformatted or corrupted. (This is why a large, sensitive
+  `~/.claude.json` is never reformatted top-to-bottom — not even as a fallback.)
 - **Antigravity quirk.** Same JSON schema, but each stdio server entry carries an
   explicit `type: "stdio"`. The tool injects this when writing Antigravity and strips it
   (as redundant) in its neutral comparison form, so an Antigravity entry never looks like

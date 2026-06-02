@@ -135,9 +135,15 @@ the new servers.
   with snake_case. The tool reads it with stdlib `tomllib`, surgically replaces just the
   `[mcp_servers.*]` tables, and leaves the rest of the file (comments, model settings,
   profiles) intact.
-- **JSON files are re-serialized** with 2-space indentation when changed. Data and key
-  order are preserved, but exact original whitespace is not — the backup holds the
-  original verbatim if the user ever wants to compare.
+- **JSON files are edited surgically.** Only the top-level `mcpServers` value is replaced
+  in the raw text (or inserted if absent); every other byte — other keys, whitespace, key
+  order, even project-scoped servers under `projects.*.mcpServers` — is left exactly as it
+  was. This matters most for `~/.claude.json`, which holds auth tokens and a lot of other
+  state. The replaced block is re-serialized to match the file's own indentation. The edit
+  is verified by re-parsing before writing; if that ever fails (it shouldn't), that file is
+  **left untouched** and reported rather than reformatted — the run exits non-zero (code 3)
+  and the other clients still sync. Tell the user which file was skipped so they can re-run
+  or report it.
 - **Scope is the six clients above, global configs only.** Project-local configs (e.g. a
   `.cursor/mcp.json` inside a repo, or per-project servers in `~/.claude.json`) are out
   of scope and untouched.

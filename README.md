@@ -51,7 +51,7 @@ The merge is **additive with a backup** — honest framing matters here, so: it 
 Two cases **do** deliberately change existing content (both backed up first, so they're reversible):
 
 - **`--prefer` overwrites the losing side.** Resolving a conflict by preference replaces the other tools' copy with the winner's.
-- **Re-serialization drops formatting** (MCP only). Changed JSON is re-emitted with 2-space indent (original whitespace gone); for Codex's TOML, comments _inside_ the `[mcp_servers.*]` block are dropped while everything outside it is kept verbatim. The `.bak` holds the exact original. (Skills are copied byte-for-byte and have no such loss.)
+- **Only the MCP section is rewritten** (MCP only). Both JSON and TOML configs are edited _surgically_: only the `mcpServers` value (JSON) / `[mcp_servers.*]` tables (TOML) are replaced, and everything else in the file — including a huge, sensitive `~/.claude.json` (auth tokens, project history, UI state) — is kept **byte-for-byte**. The replaced block itself is re-serialized to match the file's own indentation, and for Codex's TOML comments _inside_ the block are dropped. (JSON edits are verified by re-parsing before writing; on the rare chance that check fails, that file is left **untouched** and reported — never reformatted or corrupted — and the run exits non-zero.) The `.bak` holds the exact original. Skills are copied byte-for-byte.
 
 ### Restoring from a backup
 
@@ -99,7 +99,58 @@ Backups are never pruned automatically — delete old `.bak-*` files and `.skill
 INSTALL.ps1 / INSTALL.sh     # install the skills to ~/.claude/skills
 ```
 
-## To Do
+## Known Issues
 
-- See the Problems-to-solve.md doc
+### 1. `~/.agents/` is materialized on apply whether or not you use the `.agents` standard
+
+**When:** first run · **Type:** expected behavior, surprising
+
+- Both engines flag `agents` with `always_create=True`, honored independently of
+  `--create-missing`. First `--apply` with a non-empty union creates
+  `~/.agents/mcp.json` and `~/.agents/skills/` even if the user never uses dotagents.
+
+**Possible fix:** gate `always_create` behind a flag, or call it out in the plan output
+before writing.
+
+### 2. Some destination paths are the repo's own admitted unknowns
+
+**When:** first run · **Type:** unverified assumption
+
+- README "To Do" and CLAUDE.md flag that historical path/format research was partly wrong
+  and that the Cursor skills path and Antigravity's `~/.gemini/...` sharing aren't fully
+  verified.
+- Failure mode is **ineffective, not destructive**: servers/skills written to a dir the
+  tool doesn't actually read.
+
+**Possible fix:** verify on a real machine that each target tool _sees_ a newly-synced
+server/skill; add macOS/Linux destination tables to both `references/` docs.
+
+### 3. A running Claude Code can clobber the surgical `~/.claude.json` edit
+
+**When:** apply while Claude Code is running · **Type:** race condition
+
+- The MCP engine now edits `~/.claude.json` surgically (only the `mcpServers` value, rest
+  byte-for-byte) and writes atomically — so it can't corrupt or reformat the file. But
+  Claude Code keeps its own in-memory copy of that config and flushes it on state changes
+  and on exit. If it flushes after the engine's write, it **overwrites the synced
+  `mcpServers`** (the change silently doesn't "stick"); the reverse ordering is fine.
+- This is a "change may not take effect," not a data-loss or corruption issue — nothing is
+  deleted, and the `.bak` holds the pre-edit file regardless.
+
+**Possible fix (operational for now):** apply when Claude Code isn't the live writer, or
+restart it afterward so it reloads from disk. A code-level fix would need to detect a
+running instance and warn/defer, which the engine doesn't currently do.
+
+---
+
+### Minor notes
+
+- **Run `bash INSTALL.sh`, not `sh INSTALL.sh`** — `set -u` + `${BASH_SOURCE[0]}` errors
+  under dash. README says `bash`; just don't deviate.
+- **`INSTALL.sh` doesn't back up** skills it overwrites (`rm -rf` then copy), unlike the
+  engines. Only matters if a prior install of this repo exists; still inconsistent with
+  the project's own "back up before overwrite" guarantee.
+- **Memory:** `reconcile_skills.py` reads every file of every skill into RAM as bytes to
+  fingerprint. Fine for dozens of skills, but not streaming; large assets add up.
+
 - Prepare this repo to go public
