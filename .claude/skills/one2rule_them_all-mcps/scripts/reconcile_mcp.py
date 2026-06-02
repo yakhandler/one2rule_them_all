@@ -48,6 +48,38 @@ except ModuleNotFoundError:  # pragma: no cover
 # --------------------------------------------------------------------------------------
 # Interpreter bootstrap — make `python3 reconcile_mcp.py` "just work" on an old python
 # --------------------------------------------------------------------------------------
+_PY3_MINOR = re.compile(r"^python3\.(\d+)$")
+
+
+def _find_newest_python3() -> str | None:
+    """Highest `python3.<minor>` with minor >= 11 found on PATH, or None.
+
+    Chosen by FILENAME, not by executing anything: `python3.12` is 3.12 by universal
+    convention across distros, Homebrew, and pyenv shims, so we never run a candidate (no
+    hangs) and — crucially — never hardcode a version ceiling that goes stale as new
+    Pythons ship. 3.11 is the only number in the code, and only because it's the floor
+    `tomllib` requires.
+    """
+    best_minor, best_path, seen = -1, None, set()
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        if not d or d in seen:
+            continue
+        seen.add(d)
+        try:
+            entries = os.listdir(d)
+        except OSError:
+            continue  # unreadable / nonexistent PATH entry — skip it
+        for name in entries:
+            m = _PY3_MINOR.match(name)
+            if not m:
+                continue
+            minor = int(m.group(1))
+            full = os.path.join(d, name)
+            if minor >= 11 and minor > best_minor and os.access(full, os.X_OK):
+                best_minor, best_path = minor, full
+    return best_path
+
+
 def _reexec_under_modern_python() -> None:
     """Re-exec under a newer Python when launched on a pre-3.11 interpreter.
 
@@ -67,11 +99,10 @@ def _reexec_under_modern_python() -> None:
         return
     if os.name == "nt" or os.environ.get("ONE2RULE_BOOTSTRAPPED") == "1":
         return
-    for name in ("python3.13", "python3.12", "python3.11"):
-        path = shutil.which(name)
-        if path:
-            os.environ["ONE2RULE_BOOTSTRAPPED"] = "1"
-            os.execv(path, [path, os.path.abspath(__file__), *sys.argv[1:]])
+    path = _find_newest_python3()
+    if path:
+        os.environ["ONE2RULE_BOOTSTRAPPED"] = "1"
+        os.execv(path, [path, os.path.abspath(__file__), *sys.argv[1:]])
 
 
 # --------------------------------------------------------------------------------------
