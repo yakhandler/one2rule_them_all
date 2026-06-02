@@ -152,5 +152,3 @@ running instance and warn/defer, which the engine doesn't currently do.
   the project's own "back up before overwrite" guarantee.
 - **Memory:** `reconcile_skills.py` reads every file of every skill into RAM as bytes to
   fingerprint. Fine for dozens of skills, but not streaming; large assets add up.
-
-- Prepare this repo to go public
