@@ -7,19 +7,19 @@ a tiny JSON/TOML object; a *skill* is a whole directory tree — a `SKILL.md` (Y
 frontmatter + body) plus optional `scripts/`, `references/`, `assets/`, `agents/openai.yaml`,
 etc. So this tool reconciles DIRECTORIES, not config keys.
 
-Each tool keeps its skills in its own root directory (Claude `~/.claude/skills`, the Gemini CLI
-and Antigravity (CLI `agy` & IDE) both at `~/.gemini/skills`, the `.agents` standard
-`~/.agents/skills` — which is also where Codex reads user skills — and Cursor `~/.cursor/skills`).
-All of them use the SAME on-disk format: `<root>/<name>/SKILL.md`.
+Each tool keeps its skills in its own root directory (Claude `~/.claude/skills`, Codex
+`~/.codex/skills`, the Gemini CLI and Antigravity (CLI `agy` & IDE) both at `~/.gemini/skills`,
+the `.agents` standard `~/.agents/skills`, Cursor `~/.cursor/skills`). All of them use the
+SAME on-disk format: `<root>/<name>/SKILL.md`.
 Over time the sets drift — a skill you authored for Claude never shows up in Codex, etc.
 This tool reads every root that exists, computes the UNION of skills, and (on --apply) copies
 each skill into every participating tool that's missing it — without ever deleting a skill
 and without touching anything outside the skill directories it manages.
 
 Cursor is a READ-ONLY source: per Cursor's docs it natively loads skills from the other tools'
-folders (~/.claude/skills) plus ~/.agents/skills and its own ~/.cursor/skills, so once those are
-synced it already sees the union. We read its native ~/.cursor/skills so Cursor-authored skills
-propagate out, but never write to any Cursor folder.
+folders (~/.claude/skills, ~/.codex/skills) plus ~/.agents/skills and its own ~/.cursor/skills,
+so once those are synced it already sees the union. We read its native ~/.cursor/skills so
+Cursor-authored skills propagate out, but never write to any Cursor folder.
 
 Design guarantees (mirrors reconcile_mcp.py):
   * No skill is ever deleted. Every tool ends with at least the skills it started with.
@@ -91,6 +91,8 @@ def home() -> Path:
 TOOLS: list[dict] = [
     dict(key="claude", label="Claude Code / Desktop", default=True,
          roots=lambda: [home() / ".claude" / "skills"]),
+    dict(key="codex", label="Codex", default=True,
+         roots=lambda: [home() / ".codex" / "skills"]),
     # The Gemini CLI AND Antigravity (both the agy CLI and the IDE) read the SAME directory,
     # ~/.gemini/skills (verified by test on-machine). One physical root => one entry. The old
     # ~/.gemini/antigravity-cli/skills is the agy-CLI-only slash-command staging dir, NOT what
@@ -98,14 +100,13 @@ TOOLS: list[dict] = [
     dict(key="gemini", label="Gemini CLI & Antigravity (CLI & IDE)", default=True,
          roots=lambda: [home() / ".gemini" / "skills"]),
     # The vendor-neutral .agents standard (dotagentsprotocol.com): ~/.agents/skills is the
-    # global "agent-compatible" skills dir read by Codex (its USER skill scope, per OpenAI's
-    # docs), Antigravity, Cursor, OpenCode, and others — NOT ~/.codex/skills, which Codex does
-    # not read. It is a first-class source AND destination, created if missing (always_create).
+    # global "agent-compatible" skills dir read by Antigravity, Cursor, OpenCode, and others.
+    # It is a first-class source AND destination, and is created if missing (always_create).
     dict(key="agents", label="Agents (.agents standard)", default=True, always_create=True,
          roots=lambda: [home() / ".agents" / "skills"]),
     # Cursor is a READ-ONLY source. Per Cursor's docs it natively loads skills from the other
-    # tools' folders for compatibility (~/.claude/skills) plus ~/.agents/skills (which Codex
-    # also reads) and its own ~/.cursor/skills — so once we sync those, Cursor sees the full union and
+    # tools' folders for compatibility (~/.claude/skills, ~/.codex/skills) plus ~/.agents/skills
+    # and its own ~/.cursor/skills — so once we sync those, Cursor already sees the full union and
     # needs nothing written into it. We still READ its native ~/.cursor/skills so skills you author
     # directly in Cursor propagate OUT to the other tools. (Note: ~/.cursor/skills-cursor is a
     # third-party sync tool's folder that Cursor does not read, so it is intentionally NOT used.)
@@ -116,11 +117,9 @@ TOOL_KEYS = [t["key"] for t in TOOLS]
 TOOL_BY_KEY = {t["key"]: t for t in TOOLS}
 
 # `antigravity` used to be its own key/root; Antigravity (CLI & IDE) now shares ~/.gemini/skills
-# with the Gemini CLI, so it's folded into the `gemini` entry. Likewise `codex`: per OpenAI's docs
-# Codex reads user skills from ~/.agents/skills (the .agents standard) — the same dir as the
-# `agents` entry — not ~/.codex/skills, so it's folded into `agents`. Both old keys are accepted
-# as aliases so existing --only / --exclude / --include / --prefer invocations keep working.
-KEY_ALIASES = {"antigravity": "gemini", "codex": "agents"}
+# with the Gemini CLI, so it's folded into the `gemini` entry. Accept the old key as an alias so
+# existing --only / --exclude / --include / --prefer invocations keep working.
+KEY_ALIASES = {"antigravity": "gemini"}
 
 
 def canon_key(key: str) -> str:
