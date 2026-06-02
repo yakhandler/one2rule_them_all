@@ -97,6 +97,11 @@ CLIENTS: list[dict] = [
          paths=lambda: [home() / ".gemini" / "config" / "mcp_config.json"]),
     dict(key="cursor", label="Cursor", fmt="json", quirk=None,
          paths=lambda: [home() / ".cursor" / "mcp.json"]),
+    # Vendor-neutral .agents standard (dotagentsprotocol.com): ~/.agents/mcp.json, same
+    # top-level `mcpServers` JSON schema. A first-class source AND destination, and is
+    # created if missing (always_create) so the standard location always exists.
+    dict(key="agents", label="Agents (.agents standard)", fmt="json", quirk=None,
+         always_create=True, paths=lambda: [home() / ".agents" / "mcp.json"]),
 ]
 CLIENT_KEYS = [c["key"] for c in CLIENTS]
 
@@ -113,6 +118,7 @@ class Target:
         self.quirk = client["quirk"]
         self.path = path
         self.exists = path.exists()
+        self.always_create = client.get("always_create", False)  # materialize the file even if absent
         self.raw_text: str | None = None
         self.parsed: dict | None = None      # full parsed JSON object (json targets only)
         self.servers: dict[str, dict] = {}   # name -> normalized server entry
@@ -138,7 +144,7 @@ def enumerate_targets(only: set[str] | None, exclude: set[str], create_missing: 
         # macOS / Linux locations). When creating from scratch, only materialize ONE —
         # the platform-default, which is the first candidate (env-specific paths that
         # don't apply on this OS resolve to nothing and aren't first).
-        if create_missing and not existing and paths:
+        if (create_missing or client.get("always_create")) and not existing and paths:
             targets.append(Target(client, paths[0]))
     return targets
 
@@ -373,6 +379,17 @@ def backup_file(path: Path, stamp: str) -> Path:
     return b
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write `text` to `path` atomically: write a temp file in the same directory, then
+    os.replace it into place. A crash mid-write can then never leave the config truncated or
+    half-written — the original stays intact until the final, atomic rename. (The caller has
+    already taken a .bak backup as well.)"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + f".tmp-{os.getpid()}")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def ordered_final(t: Target, final_map: dict[str, dict]) -> dict[str, dict]:
     """Keep the target's existing server order, append new names alphabetically."""
     existing = list(t.servers.keys())
@@ -388,8 +405,7 @@ def write_json_target(t: Target, final_map: dict[str, dict]) -> None:
     data = dict(t.parsed) if isinstance(t.parsed, dict) else {}
     servers = {n: adapt_for_target(e, t.quirk) for n, e in ordered_final(t, final_map).items()}
     data["mcpServers"] = servers
-    t.path.parent.mkdir(parents=True, exist_ok=True)
-    t.path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _atomic_write_text(t.path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 def write_toml_target(t: Target, final_map: dict[str, dict]) -> None:
@@ -399,8 +415,7 @@ def write_toml_target(t: Target, final_map: dict[str, dict]) -> None:
     new = (new + "\n\n" if new else "") + block
     if not new.endswith("\n"):
         new += "\n"
-    t.path.parent.mkdir(parents=True, exist_ok=True)
-    t.path.write_text(new, encoding="utf-8")
+    _atomic_write_text(t.path, new)
 
 
 # --------------------------------------------------------------------------------------
@@ -421,8 +436,8 @@ def print_report(targets, sources, union, conflicts, resolved, unresolved,
     print("MCP SERVER RECONCILIATION " + ("(APPLIED)" if applied else "(PLAN - no files written)"))
     print("=" * 78)
 
-    readable = [t for t in targets if not t.error and t.exists]
-    missing = [t for t in targets if not t.exists]
+    readable = [t for t in targets if not t.error and (t.exists or t.always_create)]
+    missing = [t for t in targets if not t.exists and not t.always_create]
     errored = [t for t in targets if t.error]
 
     print(f"\nClients found: {len(readable)}    Unique servers (union): {len(final_map)}")
@@ -527,7 +542,9 @@ def main(argv=None) -> int:
         if k not in CLIENT_KEYS:
             ap.error(f"unknown client key '{k}'. Valid: {', '.join(CLIENT_KEYS)}")
 
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    # Microseconds make the stamp unique per run, so two applies in the same second can't
+    # clobber each other's backups (.bak-<stamp> is otherwise per-second).
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
     targets = enumerate_targets(only, exclude, args.create_missing)
     for t in targets:
@@ -539,7 +556,7 @@ def main(argv=None) -> int:
     final_map: dict[str, dict] = dict(union)
     final_map.update(resolved)
 
-    readable = [t for t in targets if not t.error and (t.exists or args.create_missing)]
+    readable = [t for t in targets if not t.error and (t.exists or args.create_missing or t.always_create)]
     plans = {t.key: plan_for_target(t, final_map) for t in readable}
 
     applied = False

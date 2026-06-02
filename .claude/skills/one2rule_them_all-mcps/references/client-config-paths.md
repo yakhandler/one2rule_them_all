@@ -15,6 +15,7 @@ keys (used with `--only`/`--exclude`/`--prefer`) are in the first column.
 | `gemini`         | Gemini CLI                             | `~/.gemini/settings.json`                                                                  | JSON `mcpServers`                             |
 | `antigravity`    | Antigravity (CLI / IDE)                | `~/.gemini/config/mcp_config.json`                                                         | JSON `mcpServers`, entry gets `type: "stdio"` |
 | `cursor`         | Cursor                                 | `~/.cursor/mcp.json`                                                                       | JSON `mcpServers`                             |
+| `agents`         | `.agents` standard (auto-created)      | `~/.agents/mcp.json`                                                                       | JSON `mcpServers`                             |
 
 ## Path resolution notes
 

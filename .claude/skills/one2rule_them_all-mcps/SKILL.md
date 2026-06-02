@@ -1,5 +1,5 @@
 ---
-name: one2rule_them_all
+name: one2rule_them_all-mcps
 description: >-
   Merge and sync MCP server definitions across every MCP client config on the machine
   (Claude Desktop/Cowork, Claude Code, Codex, Gemini CLI, Antigravity, Cursor) so each
@@ -75,9 +75,13 @@ they want to resolve each one. There are two ways forward:
   you re-run the plan and the conflict disappears.
 
 Valid client keys: `claude-desktop`, `claude-code`, `codex`, `gemini`, `antigravity`,
-`cursor`. Resolving a conflict by preference will *change* the losing clients' entries to
-match the winner — call that out explicitly before applying, since it's the one case
-where an existing definition gets overwritten.
+`cursor`, `agents`. Resolving a conflict by preference will *change* the losing clients'
+entries to match the winner — call that out explicitly before applying, since it's the one
+case where an existing definition gets overwritten.
+
+`agents` is the vendor-neutral [.agents standard](https://dotagentsprotocol.com/) config at
+`~/.agents/mcp.json` (same `mcpServers` JSON schema). It's a first-class source and
+destination and is **created if missing**, so the standard location always exists.
 
 ### 3. Apply on confirmation
 
