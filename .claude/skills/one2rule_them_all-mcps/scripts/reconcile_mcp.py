@@ -661,16 +661,17 @@ def _splice_json_member(text: str, key: str, value):
 
 
 def render_json_target(t: Target, final_map: dict[str, dict]) -> str | None:
-    """Return the exact text to write for a JSON target, or None if an EXISTING file can't be
-    edited surgically.
+    """Return the exact text to write for a JSON target, or None if an EXISTING non-empty
+    file can't be edited surgically.
 
-    For an existing file we splice only the `mcpServers` value and verify by re-parsing. If
-    that verification fails we return None — the caller then leaves the file untouched rather
-    than reformatting it (we never full-rewrite a file that already exists, so a large,
-    sensitive `~/.claude.json` is never reflowed). A not-yet-existing file has nothing to
-    preserve, so it is built fresh."""
+    For an existing, non-empty file we splice only the `mcpServers` value and verify by
+    re-parsing. If that verification fails we return None — the caller then leaves the file
+    untouched rather than reformatting it (we never full-rewrite a populated file, so a large,
+    sensitive `~/.claude.json` is never reflowed). A not-yet-existing OR empty/whitespace-only
+    file has nothing to preserve, so it is built fresh (an empty file is not "reformatting" —
+    there is no content to lose, and the surgical splice can't operate on it anyway)."""
     servers = {n: adapt_for_target(e, t.quirk) for n, e in ordered_final(t, final_map).items()}
-    if t.raw_text is None:  # new file: nothing to preserve, build it from scratch
+    if t.raw_text is None or not t.raw_text.strip():  # new or empty file: build from scratch
         data = dict(t.parsed) if isinstance(t.parsed, dict) else {}
         data["mcpServers"] = servers
         return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
