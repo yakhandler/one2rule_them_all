@@ -54,8 +54,9 @@ python3 <skill_dir>/scripts/reconcile_mcp.py
 ```
 
 > Use `python3` on macOS/Linux; on Windows use `python` (or `py -3`). The engine needs
-> Python 3.11+ — on an older interpreter the JSON clients still sync, but Codex is skipped
-> (no stdlib `tomllib`).
+> Python 3.11+ for Codex (stdlib `tomllib`); if launched on an older interpreter it
+> auto-re-execs into the newest `python3.x` on PATH. If none is found, the JSON clients
+> still sync but Codex is skipped (with a message telling you how to fix it).
 
 The script auto-discovers each client's config from standard locations (see
 `references/client-config-paths.md`). It only considers clients whose config file

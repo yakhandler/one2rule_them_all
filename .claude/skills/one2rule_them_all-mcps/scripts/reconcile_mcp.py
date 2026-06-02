@@ -46,6 +46,35 @@ except ModuleNotFoundError:  # pragma: no cover
 
 
 # --------------------------------------------------------------------------------------
+# Interpreter bootstrap — make `python3 reconcile_mcp.py` "just work" on an old python
+# --------------------------------------------------------------------------------------
+def _reexec_under_modern_python() -> None:
+    """Re-exec under a newer Python when launched on a pre-3.11 interpreter.
+
+    Codex's config.toml is read with the stdlib `tomllib` (Python 3.11+). On macOS
+    (Command Line Tools ships 3.9) and Ubuntu 22.04 (3.10), bare `python3` is often
+    pre-3.11 — which would silently drop Codex from the sync. If we were launched on such
+    an interpreter, find the newest `python3.x` on PATH and re-exec into it so Codex is
+    still included. This keeps the documented `python3 reconcile_mcp.py` invocation
+    correct without asking the caller to hunt for the right interpreter.
+
+    No-op when already on 3.11+ or on Windows (Python is normally current there and
+    os.execv is unreliable). Never loops (sentinel env var). If nothing newer is found we
+    simply fall through and run: the JSON clients still sync and Codex is reported as
+    skipped with an actionable message.
+    """
+    if sys.version_info >= (3, 11):
+        return
+    if os.name == "nt" or os.environ.get("ONE2RULE_BOOTSTRAPPED") == "1":
+        return
+    for name in ("python3.13", "python3.12", "python3.11"):
+        path = shutil.which(name)
+        if path:
+            os.environ["ONE2RULE_BOOTSTRAPPED"] = "1"
+            os.execv(path, [path, os.path.abspath(__file__), *sys.argv[1:]])
+
+
+# --------------------------------------------------------------------------------------
 # Path resolution (overridable for testing via --home / --appdata / --localappdata)
 # --------------------------------------------------------------------------------------
 _OVERRIDES: dict[str, str | None] = {}
@@ -209,7 +238,9 @@ def load_target(t: Target) -> None:
         raw = data.get("mcpServers") or {}
     else:  # toml
         if tomllib is None:
-            t.error = "no TOML reader available (need Python 3.11+ or `pip install tomli`); skipping"
+            t.error = ("Codex skipped: needs Python 3.11+ for the stdlib `tomllib` reader and "
+                       "none was found on PATH. Install one (e.g. `brew install python@3.12`, "
+                       "pyenv, or your distro's python3.12 package) and re-run to include Codex.")
             return
         try:
             data = tomllib.loads(text)
@@ -599,4 +630,5 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    _reexec_under_modern_python()
     sys.exit(main())

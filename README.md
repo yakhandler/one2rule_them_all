@@ -4,9 +4,9 @@ Two [Claude Code](https://docs.claude.com/en/docs/claude-code) Agent Skills that
 
 ## The skills
 
-| Skill                        | Syncs                            | Across                                                           |
-| ---------------------------- | -------------------------------- | ---------------------------------------------------------------- |
-| **one2rule_them_all-mcps**   | MCP server definitions           | Claude Desktop/Code, Codex, Gemini CLI, Antigravity, Cursor, `.agents` standard |
+| Skill                        | Syncs                            | Across                                                                               |
+| ---------------------------- | -------------------------------- | ------------------------------------------------------------------------------------ |
+| **one2rule_them_all-mcps**   | MCP server definitions           | Claude Desktop/Code, Codex, Gemini CLI, Antigravity, Cursor, `.agents` standard      |
 | **one2rule_them_all-skills** | Agent Skills (whole directories) | Claude, Codex, Antigravity, Gemini, `.agents` standard (Cursor reads these natively) |
 
 Each computes the union of everything across the tools you actually have installed and writes that complete set back into each one — converting formats where needed for MCP configs (e.g. Codex's TOML), copying skill directories verbatim, and leaving the rest of every file untouched. Skills need no format conversion since every tool uses the same `SKILL.md` directory layout; the one per-tool extra, Codex/Antigravity's optional `agents/openai.yaml` interface file, is copied along when present but never fabricated, since it's non-critical metadata a skill runs fine without.
@@ -36,13 +36,13 @@ python3 <skill_dir>/scripts/reconcile_mcp.py            # dry-run plan
 python3 <skill_dir>/scripts/reconcile_mcp.py --apply    # apply changes
 ```
 
-Use `python3` on macOS/Linux; on Windows use `python` (or `py -3`). Either way it must be Python 3.11+ (see Requirements).
+Use `python3` on macOS/Linux; on Windows use `python` (or `py -3`). Only the MCP engine needs Python 3.11+ (for Codex), and it auto-finds a newer `python3.x` if your default is older; the skills engine runs on 3.9+ (see Requirements).
 
 ## Safety model
 
-The merge is **additive with a backup** — honest framing matters here, so: it is *not* a guaranteed no-op rewrite, but nothing you have is ever lost.
+The merge is **additive with a backup** — honest framing matters here, so: it is _not_ a guaranteed no-op rewrite, but nothing you have is ever lost.
 
-- **Nothing is ever removed.** No server or skill is dropped from any tool; every tool ends with at least what it had. `--only-skill` / `--skip-skill` / `--exclude` only narrow what gets *synced in* — they never prune what's already there.
+- **Nothing is ever removed.** No server or skill is dropped from any tool; every tool ends with at least what it had. `--only-skill` / `--skip-skill` / `--exclude` only narrow what gets _synced in_ — they never prune what's already there.
 - **Conflicts block.** Same name, different definition/content in two tools → it stops (exit code 2), prints both, and writes nothing until you resolve it (`--prefer` to pick a winner, or edit one side to match).
 - **Backed up before every overwrite.** MCP configs to `<file>.bak-<stamp>`; skills to `<root>/.skill-backups/<stamp>/<name>/`. The stamp carries microseconds, so two runs in the same second can't clobber each other's backups.
 - **Writes are atomic.** Each config/skill is built at a temporary path and swapped into place with a rename, so an interrupted run (Ctrl-C, crash, power loss) can't leave a half-written config or a deleted-but-not-rewritten skill — the original stays intact until the final atomic step.
@@ -51,7 +51,7 @@ The merge is **additive with a backup** — honest framing matters here, so: it 
 Two cases **do** deliberately change existing content (both backed up first, so they're reversible):
 
 - **`--prefer` overwrites the losing side.** Resolving a conflict by preference replaces the other tools' copy with the winner's.
-- **Re-serialization drops formatting** (MCP only). Changed JSON is re-emitted with 2-space indent (original whitespace gone); for Codex's TOML, comments *inside* the `[mcp_servers.*]` block are dropped while everything outside it is kept verbatim. The `.bak` holds the exact original. (Skills are copied byte-for-byte and have no such loss.)
+- **Re-serialization drops formatting** (MCP only). Changed JSON is re-emitted with 2-space indent (original whitespace gone); for Codex's TOML, comments _inside_ the `[mcp_servers.*]` block are dropped while everything outside it is kept verbatim. The `.bak` holds the exact original. (Skills are copied byte-for-byte and have no such loss.)
 
 ### Restoring from a backup
 
@@ -80,12 +80,15 @@ Backups are never pruned automatically — delete old `.bak-*` files and `.skill
 
 ## Requirements
 
-- **Python 3.11+** — the engines use the stdlib `tomllib` (added in 3.11) to read Codex's
-  `config.toml`. On an older Python the JSON clients still sync, but **Codex is skipped**.
-- Heads-up for macOS/Linux: the *system* Python is often too old, and there may be no bare
+- **Python 3.11+ for the MCP engine only** — `reconcile_mcp.py` uses the stdlib `tomllib`
+  (added in 3.11) to read Codex's `config.toml`. On an older Python the JSON clients still
+  sync, but **Codex is skipped** (with a message telling you how to fix it). The skills
+  engine (`reconcile_skills.py`) has no such dependency and runs on **Python 3.9+**.
+- Heads-up for macOS/Linux: the _system_ Python is often too old, and there may be no bare
   `python` at all. macOS Command Line Tools ships 3.9 (and only as `python3`); Ubuntu 22.04
-  LTS ships 3.10. Install a current Python first — e.g. `brew install python@3.12`, `pyenv`,
-  or your distro's `python3.12` package — and invoke it as `python3`.
+  LTS ships 3.10. For Codex support, install a current Python — e.g. `brew install python@3.12`,
+  `pyenv`, or your distro's `python3.12` package. You don't have to invoke it as bare
+  `python3`: the MCP engine auto-re-execs into the newest `python3.x` it finds on PATH.
 
 ## Layout
 
@@ -98,4 +101,5 @@ INSTALL.ps1 / INSTALL.sh     # install the skills to ~/.claude/skills
 
 ## To Do
 
-- Add macOS support for destinations — duplicate each of the destination reference tables for macOS (and Linux too).
+- See the Problems-to-solve.md doc
+- Prepare this repo to go public

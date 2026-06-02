@@ -92,7 +92,9 @@ Never start with `--apply`. Run the default dry-run:
 python3 <skill_dir>/scripts/reconcile_skills.py
 ```
 
-> Use `python3` on macOS/Linux; on Windows use `python` (or `py -3`). Needs Python 3.11+.
+> Use `python3` on macOS/Linux; on Windows use `python` (or `py -3`). This engine runs on
+> Python 3.9+ — unlike the MCP engine it has no `tomllib` dependency, so there's no
+> Codex-style version cliff here.
 
 Summarize for the user: how many tools were found, how many unique skills make up the
 union, and which skills are missing from which tools (the "Skill coverage" section). The

@@ -43,8 +43,10 @@ Where the two engines **diverge** (because the problems differ):
 
 There is no build/lint step and no package. Work is: run an engine, read its plan, apply.
 
-Invoke with Python 3.11+: `python3` on macOS/Linux (where there's usually no bare `python`),
-`python` or `py -3` on Windows. The examples below use `python3`.
+Invoke with `python3` on macOS/Linux (where there's usually no bare `python`), `python` or
+`py -3` on Windows. The MCP engine needs Python 3.11+ for Codex (stdlib `tomllib`) and
+auto-re-execs into a newer `python3.x` if the default is older; the skills engine runs on
+3.9+. The examples below use `python3`.
 
 ```bash
 # Plan (dry-run) and apply — MCP servers
@@ -80,7 +82,7 @@ Throwaway sandboxes plus `.skill-backups/` and `*.bak-*` are gitignored.
 
 ## Conventions & gotchas
 
-- **Python 3.11+** (stdlib `tomllib`). Stdlib only — do not add dependencies; the engines must run anywhere Python does.
+- **Python 3.11+ for the MCP engine** (stdlib `tomllib`, for Codex); the skills engine runs on **3.9+**. The MCP engine auto-re-execs into the newest `python3.x` on PATH when launched on an older interpreter (`_reexec_under_modern_python`). Stdlib only — do not add dependencies; the engines must run anywhere Python does.
 - **Windows-first** (paths use `Path.home()` honoring `USERPROFILE`; rmtree has a read-only retry). Keep cross-platform: read/write files as **bytes** in the skills engine so byte round-trips and CRLF survive.
 - **Real-world frontmatter is messy** — at least one installed skill has a malformed `\---` fence with CRLF. Parse frontmatter defensively (for display/identity/limit checks only); never normalize or "fix" it on copy.
 - The original research tables claiming per-tool formats (Cursor JSON rule-maps, Codex `.toml`, Antigravity `AGENTS.md` for *skills*) are **wrong** — on disk every tool uses the same SKILL.md directory format. The verified reality lives in each skill's `references/` doc and the raw notes in [.research/](.research/).
