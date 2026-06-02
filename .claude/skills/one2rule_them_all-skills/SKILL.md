@@ -112,17 +112,23 @@ references).
 
 ### 3. Handle conflicts (exit code 2)
 
-If the report shows **BLOCKING CONFLICTS** (exit code 2), do not apply. The script reports
-the kind:
+If the report shows **BLOCKING CONFLICTS** (exit code 2), do not apply by default. The
+script reports the kind (and prints a ready-to-use `--prefer` suggestion plus the tools
+involved):
 - **body differs** — the skills' files/scripts/SKILL.md body genuinely differ.
 - **description differs** — same files, but descriptions diverge in a way that isn't just
   one being a trimmed copy of the other.
 
-Two ways forward:
+Three ways forward:
 - **Pick a winner** — re-run with `--prefer`, a comma-separated tool priority list. For
   each conflicting skill, the first tool in the list that has it wins and its version is
   copied everywhere. Example: `--prefer claude,codex`.
 - **Edit to match** — the user reconciles the two copies by hand, then you re-run.
+- **Skip them for now** — re-run with `--skip-conflicts` to sync everything *except* the
+  conflicting skills, leaving each tool's own copy of those untouched (nothing is
+  overwritten or deleted). The conflicts are still reported and the exit code stays **2**.
+  Good for getting the non-conflicting skills everywhere immediately; confirm with the user
+  first, since it leaves real divergence unresolved.
 
 Resolving by preference **overwrites the losing tools' copies** (their originals are backed
 up). Call that out before applying.
@@ -142,6 +148,8 @@ Report which tools changed, what was added/changed, and that backups are under e
 ## Useful options
 
 - `--prefer <keys>` — priority order to auto-resolve conflicts (see above).
+- `--skip-conflicts` — sync the non-conflicting skills and leave conflicting names alone
+  instead of blocking the whole run (see above). Exit code stays 2; nothing is overwritten.
 - `--only <keys>` / `--exclude <keys>` — limit which tools participate (e.g. `--exclude cursor`).
 - `--include <keys>` — add a tool that was excluded, without dropping the rest.
 - `--only-skill <names>` / `--skip-skill <names>` — restrict the sync to, or hold back,

@@ -598,7 +598,7 @@ def fmt_list(names: list[str], limit: int = 12) -> str:
 
 
 def print_report(targets, sources, union, conflicts, resolved, unresolved,
-                 final_map, plans, applied, stamp, all_warnings):
+                 final_map, plans, applied, stamp, all_warnings, skip_conflicts=False):
     print("=" * 78)
     print("SKILL RECONCILIATION " + ("(APPLIED)" if applied else "(PLAN - no files written)"))
     print("=" * 78)
@@ -649,12 +649,26 @@ def print_report(targets, sources, union, conflicts, resolved, unresolved,
             print(f"   ! {w}")
 
     if unresolved:
-        print("\n" + "!" * 78)
-        print("BLOCKING CONFLICTS — same skill name, different content.")
-        print("Nothing was written. Resolve by editing one copy to match, or re-run with")
-        print("--prefer <tool[,tool...]> to choose a winner. Tool keys:")
-        print("  " + ", ".join(TOOL_KEYS))
-        print("!" * 78)
+        tools_in = sorted({k for nm in unresolved for k, _ in sources.get(nm, [])})
+        bar = "!" * 78
+        print("\n" + bar)
+        if applied:  # only reachable under --skip-conflicts
+            print(f"SKIPPED CONFLICTS — {len(unresolved)} skill name(s) differ across tools.")
+            print("Synced everything else; these were left untouched (nothing overwritten).")
+        else:
+            print(f"BLOCKING CONFLICTS — {len(unresolved)} skill name(s) differ across tools.")
+            print("With --skip-conflicts, --apply syncs everything EXCEPT these."
+                  if skip_conflicts else "Nothing was written.")
+        print("Resolve each by either:")
+        suggestion = tools_in[0] if tools_in else TOOL_KEYS[0]
+        print(f"  - re-running with --prefer <tool[,tool...]> to pick a winner "
+              f"(e.g. --prefer {suggestion})")
+        if tools_in:
+            print(f"      tools in these conflicts: {', '.join(tools_in)}")
+        print("  - editing one copy so the content matches, then re-running")
+        if not skip_conflicts:
+            print("  - or --skip-conflicts to sync everything else now and resolve these later")
+        print(bar)
         for name, info in unresolved.items():
             kind = info["kind"]
             print(f"\n  Conflict on '{name}' ({kind} differs):")
@@ -669,8 +683,13 @@ def print_report(targets, sources, union, conflicts, resolved, unresolved,
                           f"{' ...' if len(fm) > 8 else ''}")
 
     if applied:
-        print(f"\nWrote changes. Overwritten skills were backed up under each root's "
-              f".skill-backups/{stamp}/")
+        if unresolved:
+            print(f"\nApplied the non-conflicting skills; {len(unresolved)} conflict(s) skipped "
+                  f"(above). Overwritten skills were backed up under each root's "
+                  f".skill-backups/{stamp}/")
+        else:
+            print(f"\nWrote changes. Overwritten skills were backed up under each root's "
+                  f".skill-backups/{stamp}/")
     elif not unresolved:
         any_change = any(plans[t.key][0] or plans[t.key][1] for t in readable)
         if any_change:
@@ -678,6 +697,13 @@ def print_report(targets, sources, union, conflicts, resolved, unresolved,
                   "(backups will be made).")
         else:
             print("\nEverything is already in sync - nothing to do.")
+    else:  # dry run with unresolved conflicts
+        if skip_conflicts:
+            print("\nThis was a dry run. Re-run with --apply --skip-conflicts to write the "
+                  "non-conflicting skills (the conflicts above stay untouched).")
+        else:
+            print("\nThis was a dry run. Resolve the conflicts above (or add --skip-conflicts), "
+                  "then re-run with --apply.")
     print()
 
 
@@ -699,6 +725,11 @@ def main(argv=None) -> int:
     ap.add_argument("--skip-skill", default="", help="Comma-separated skill names to leave out of the sync.")
     ap.add_argument("--create-missing", action="store_true",
                     help="Also create skills roots for participating tools that don't have one yet.")
+    ap.add_argument("--skip-conflicts", action="store_true",
+                    help="Instead of blocking the whole run on a conflict, sync the "
+                         "non-conflicting skills and leave conflicting names untouched. "
+                         "Conflicts are still reported and the exit code stays 2 so you "
+                         "know to resolve them.")
     ap.add_argument("--max-desc", type=int, default=DEFAULT_DESC_LIMIT,
                     help=f"Description character limit before it gets shortened (default {DEFAULT_DESC_LIMIT}).")
     ap.add_argument("--max-name", type=int, default=DEFAULT_NAME_LIMIT,
@@ -754,7 +785,9 @@ def main(argv=None) -> int:
     all_warnings = sorted({w for t in readable for w in plans[t.key][3]})
 
     applied = False
-    if args.apply and not unresolved:
+    # Conflicting names are already excluded from final_map (union + resolved only), so a
+    # --skip-conflicts apply simply writes the non-conflicting set and leaves conflicts alone.
+    if args.apply and (args.skip_conflicts or not unresolved):
         for t in readable:
             if t.source_only:
                 continue  # read-only source (Cursor): never written to
@@ -784,7 +817,7 @@ def main(argv=None) -> int:
         }, indent=2, ensure_ascii=False))
     else:
         print_report(targets, sources, union, conflicts, resolved, unresolved,
-                     final_map, plans, applied, stamp, all_warnings)
+                     final_map, plans, applied, stamp, all_warnings, args.skip_conflicts)
 
     if unresolved:
         return 2

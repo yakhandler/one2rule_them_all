@@ -69,8 +69,9 @@ servers make up the union, and which servers are missing from which clients. The
 ### 2. Handle conflicts (exit code 2)
 
 If the report shows **BLOCKING CONFLICTS** (and the script exits with code 2), do not
-apply anything. Show the user the conflicting definitions the script printed and ask how
-they want to resolve each one. There are two ways forward:
+apply anything by default. Show the user the conflicting definitions the script printed
+(it also prints a ready-to-use `--prefer` suggestion and lists the clients involved) and
+ask how they want to resolve each one. There are three ways forward:
 
 - **Pick a winning client** — re-run with `--prefer`, a comma-separated priority list of
   client keys. For each conflicting name, the first client in the list that defines it
@@ -78,6 +79,12 @@ they want to resolve each one. There are two ways forward:
   doesn't have it, use Claude Code's."
 - **Edit to match** — the user edits one config so both definitions are identical, then
   you re-run the plan and the conflict disappears.
+- **Skip them for now** — re-run with `--skip-conflicts` to sync everything *except* the
+  conflicting names, leaving each client's own copy of those untouched (nothing is
+  overwritten or deleted). The conflicts are still reported and the exit code stays **2**
+  so they aren't forgotten. Good when the user wants the non-conflicting servers in place
+  immediately and will reconcile the rest later. Confirm with the user before using it,
+  since it leaves real divergence unresolved.
 
 Valid client keys: `claude-desktop`, `claude-code`, `codex`, `gemini`, `antigravity`,
 `cursor`, `agents`. Resolving a conflict by preference will *change* the losing clients'
@@ -104,6 +111,8 @@ the new servers.
 ## Useful options
 
 - `--prefer <keys>` — priority order to auto-resolve name conflicts (see above).
+- `--skip-conflicts` — sync the non-conflicting servers and leave conflicting names alone
+  instead of blocking the whole run (see above). Exit code stays 2; nothing is overwritten.
 - `--only <keys>` / `--exclude <keys>` — limit which clients participate. Use `--exclude`
   if the user wants to leave a particular client out of the sync.
 - `--create-missing` — also create config files for clients that don't have one yet.

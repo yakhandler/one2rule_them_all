@@ -375,19 +375,75 @@ def _toml_table_name(line: str) -> str | None:
     return s[1:end].strip() if end != -1 else None
 
 
+def _advance_toml_state(line: str, in_str: bool, delim: str, depth: int):
+    """Update the cross-line TOML lexer state after one physical line.
+
+    Returns (in_str, delim, depth): whether the line ends inside a multi-line string (and
+    which `\"\"\"`/`'''` delimiter), plus the net `[`...`]` array depth carried to the next
+    line. Brackets and quotes inside strings or after a `#` comment are ignored. The input is
+    always valid TOML (load_target parsed it with tomllib before we ever write), so only
+    well-formed constructs need handling. This lets _strip_mcp_tables tell a real table
+    header from a `[`-leading line that is really an element of a multi-line array — the case
+    that previously corrupted Codex configs."""
+    i, n = 0, len(line)
+    while i < n:
+        if in_str:  # inside a multi-line string: only its closing delimiter matters
+            idx = line.find(delim, i)
+            if idx == -1:
+                return True, delim, depth
+            i = idx + len(delim)
+            in_str, delim = False, ""
+            continue
+        c = line[i]
+        if c == "#":  # comment runs to end of line
+            break
+        if line.startswith('"""', i) or line.startswith("'''", i):
+            in_str, delim = True, line[i:i + 3]
+            i += 3
+            continue
+        if c == '"' or c == "'":  # single-line string (basic strings honor backslash escapes)
+            i += 1
+            while i < n:
+                if c == '"' and line[i] == "\\":
+                    i += 2
+                    continue
+                if line[i] == c:
+                    i += 1
+                    break
+                i += 1
+            continue
+        if c == "[":
+            depth += 1
+        elif c == "]":
+            depth = max(0, depth - 1)
+        i += 1
+    return in_str, delim, depth
+
+
 def _strip_mcp_tables(text: str) -> str:
-    """Remove every [mcp_servers] / [mcp_servers.*] table block, keep all else verbatim."""
+    """Remove every [mcp_servers] / [mcp_servers.*] table block, keep all else verbatim.
+
+    A line is only treated as a table header when we're at TOP LEVEL — not inside a
+    multi-line string or a multi-line array. That guard is what makes this safe: an array
+    element or string line that happens to start with `[` inside an mcp block (e.g. a nested
+    `["x"]` on its own line) can no longer be misread as a header, prematurely ending the
+    block and leaking stray lines into the output."""
     out: list[str] = []
     in_mcp = False
+    in_str = False
+    delim = ""
+    depth = 0
     for line in text.splitlines():
-        name = _toml_table_name(line)
-        if name is not None:
-            in_mcp = name == "mcp_servers" or name.startswith("mcp_servers.")
-            if in_mcp:
-                continue
-        if in_mcp:
-            continue
-        out.append(line)
+        if not in_str and depth == 0:  # only here can a line be a genuine table header
+            name = _toml_table_name(line)
+            if name is not None:
+                in_mcp = name == "mcp_servers" or name.startswith("mcp_servers.")
+                if not in_mcp:
+                    out.append(line)
+                continue  # header lines are self-contained in valid TOML; no state to advance
+        in_str, delim, depth = _advance_toml_state(line, in_str, delim, depth)
+        if not in_mcp:
+            out.append(line)
     return "\n".join(out)
 
 
@@ -422,13 +478,22 @@ def _atomic_write_text(path: Path, text: str) -> None:
 
 
 def ordered_final(t: Target, final_map: dict[str, dict]) -> dict[str, dict]:
-    """Keep the target's existing server order, append new names alphabetically."""
+    """Server map to write for this target: keep existing order, override each with the
+    reconciled definition where we have one, but PRESERVE the target's own current entry for
+    any name not in final_map — then append new names alphabetically.
+
+    The preserve step is what keeps the merge additive under --skip-conflicts: a server whose
+    name is an unresolved conflict is omitted from final_map, and rewriting the section from
+    final_map alone would silently drop the target's existing copy. We never delete, so we
+    carry that entry through unchanged. (On the normal path final_map covers every existing
+    name, so this branch is a no-op.)"""
     existing = list(t.servers.keys())
     new = sorted(n for n in final_map if n not in t.servers)
     ordered = {}
-    for n in existing + new:
-        if n in final_map:
-            ordered[n] = final_map[n]
+    for n in existing:
+        ordered[n] = final_map[n] if n in final_map else t.servers[n]
+    for n in new:
+        ordered[n] = final_map[n]
     return ordered
 
 
@@ -462,7 +527,7 @@ def fmt_list(names: list[str], limit: int = 12) -> str:
 
 
 def print_report(targets, sources, union, conflicts, resolved, unresolved,
-                 final_map, plans, applied, stamp):
+                 final_map, plans, applied, stamp, skip_conflicts=False):
     print("=" * 78)
     print("MCP SERVER RECONCILIATION " + ("(APPLIED)" if applied else "(PLAN - no files written)"))
     print("=" * 78)
@@ -505,12 +570,24 @@ def print_report(targets, sources, union, conflicts, resolved, unresolved,
         print(f"    = unchanged: {len(keeps)}")
 
     if unresolved:
-        print("\n" + "!" * 78)
-        print("BLOCKING CONFLICTS — same server name, different definitions.")
-        print("Nothing was written. Resolve by editing one config to match, or re-run")
-        print("with --prefer <client[,client...]> to choose a winner. Client keys:")
-        print("  " + ", ".join(CLIENT_KEYS))
-        print("!" * 78)
+        clients_in = sorted({ck for occ in unresolved.values() for ck, _ in occ})
+        bar = "!" * 78
+        print("\n" + bar)
+        if applied:  # only reachable under --skip-conflicts
+            print(f"SKIPPED CONFLICTS — {len(unresolved)} server name(s) differ across clients.")
+            print("Synced everything else; these were left untouched (nothing overwritten).")
+        else:
+            print(f"BLOCKING CONFLICTS — {len(unresolved)} server name(s) differ across clients.")
+            print("With --skip-conflicts, --apply syncs everything EXCEPT these."
+                  if skip_conflicts else "Nothing was written.")
+        print("Resolve each by either:")
+        print(f"  - re-running with --prefer <client[,client...]> to pick a winner "
+              f"(e.g. --prefer {clients_in[0]})")
+        print(f"      clients in these conflicts: {', '.join(clients_in)}")
+        print("  - editing one config so the definitions match, then re-running")
+        if not skip_conflicts:
+            print("  - or --skip-conflicts to sync everything else now and resolve these later")
+        print(bar)
         for name, occ in unresolved.items():
             print(f"\n  Conflict on '{name}':")
             seen = {}
@@ -522,13 +599,24 @@ def print_report(targets, sources, union, conflicts, resolved, unresolved,
                     print("    " + ln)
 
     if applied:
-        print("\nWrote changes. Backups created with suffix .bak-" + stamp)
+        if unresolved:
+            print(f"\nApplied the non-conflicting servers; {len(unresolved)} conflict(s) skipped "
+                  f"(above). Backups created with suffix .bak-{stamp}")
+        else:
+            print("\nWrote changes. Backups created with suffix .bak-" + stamp)
     elif not unresolved:
         any_change = any(plans[t.key][0] or plans[t.key][1] for t in readable)
         if any_change:
             print("\nThis was a dry run. Re-run with --apply to write these changes (backups will be made).")
         else:
             print("\nEverything is already in sync - nothing to do.")
+    else:  # dry run with unresolved conflicts
+        if skip_conflicts:
+            print("\nThis was a dry run. Re-run with --apply --skip-conflicts to write the "
+                  "non-conflicting servers (the conflicts above stay untouched).")
+        else:
+            print("\nThis was a dry run. Resolve the conflicts above (or add --skip-conflicts), "
+                  "then re-run with --apply.")
     print()
 
 
@@ -546,6 +634,11 @@ def main(argv=None) -> int:
     ap.add_argument("--exclude", default="", help="Comma-separated client keys to skip.")
     ap.add_argument("--create-missing", action="store_true",
                     help="Also create config files for clients that don't have one yet.")
+    ap.add_argument("--skip-conflicts", action="store_true",
+                    help="Instead of blocking the whole run on a conflict, sync the "
+                         "non-conflicting servers and leave conflicting names untouched. "
+                         "Conflicts are still reported and the exit code stays 2 so you "
+                         "know to resolve them.")
     ap.add_argument("--json", dest="as_json", action="store_true",
                     help="Emit a machine-readable JSON summary instead of the text report.")
     # Testing / advanced path overrides
@@ -591,7 +684,9 @@ def main(argv=None) -> int:
     plans = {t.key: plan_for_target(t, final_map) for t in readable}
 
     applied = False
-    if args.apply and not unresolved:
+    # Conflicting names are already excluded from final_map (union + resolved only), so a
+    # --skip-conflicts apply simply writes the non-conflicting set and leaves conflicts alone.
+    if args.apply and (args.skip_conflicts or not unresolved):
         for t in readable:
             adds, changes, _ = plans[t.key]
             if not adds and not changes:
@@ -620,7 +715,7 @@ def main(argv=None) -> int:
         }, indent=2, ensure_ascii=False))
     else:
         print_report(targets, sources, union, conflicts, resolved, unresolved,
-                     final_map, plans, applied, stamp)
+                     final_map, plans, applied, stamp, args.skip_conflicts)
 
     if unresolved:
         return 2

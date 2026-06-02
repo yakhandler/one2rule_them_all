@@ -81,7 +81,27 @@ Claude Code isn't the live writer, then restart."
 before writing.
 
 ## 4. First real run will likely block on conflicts (exit 2)
-**When:** first run · **Type:** expected, not a bug
+**When:** first run · **Type:** expected, not a bug · **Status:** ✅ RESOLVED (UX improved)
+
+> **Fix applied (better hints + opt-in partial apply):** The safe default is unchanged
+> (conflicts block, write nothing, exit 2). Two additions make the first run productive:
+> (1) the BLOCKING/SKIPPED CONFLICTS report now prints a ready-to-use `--prefer` example and
+> lists the exact clients/tools involved in each conflict; (2) a new **`--skip-conflicts`**
+> flag (both engines) syncs the non-conflicting union now and leaves conflicting names
+> untouched — still exit 2 so the divergence isn't forgotten.
+>
+> **Caught & fixed a data-loss bug during testing:** the first cut of `--skip-conflicts`
+> dropped a target's own copy of a conflicting MCP server, because `write_*_target` rewrites
+> the whole `mcpServers` section from `final_map` (which omits conflicts) and `ordered_final`
+> kept only `final_map` names. Fixed `ordered_final` to **preserve the target's existing
+> entry for any name not in `final_map`** — keeping the merge additive. (The skills engine
+> was never affected: it writes per skill-directory, so a conflicting skill it already has is
+> simply never touched.) Verified end-to-end for both engines: dry-run, plain apply (blocks),
+> `--skip-conflicts` (additive, conflicting copy preserved, idempotent), `--prefer` (full
+> resolve, exit 0); plus happy-path idempotency regression.
+
+Original analysis below, for the record:
+
 
 - With many existing skills/servers, any same-named-but-different definition across two
   tools makes the engine refuse to guess, print both, write nothing, and exit 2.
@@ -92,7 +112,22 @@ before writing.
 --prefer" hint earlier / more prominently.
 
 ## 5. Latent Codex-TOML corruption edge case
-**When:** first run · **Type:** real bug, low probability
+**When:** first run · **Type:** real bug, low probability · **Status:** ✅ RESOLVED
+
+> **Fix applied (top-level-aware stripper):** `_strip_mcp_tables` now only treats a line as
+> a table header when at TOP LEVEL — not inside a multi-line string or multi-line array —
+> using a new `_advance_toml_state()` cross-line lexer that tracks `"""`/`'''` strings and
+> net `[`...`]` array depth (ignoring brackets/quotes in strings and after `#`). A `[`-leading
+> array element or string line inside an `[mcp_servers.*]` block can no longer be misread as a
+> header, so it can't end the block early and leak stray lines. Safe by construction: the
+> input is always valid TOML (`load_target` parses with `tomllib` before any write, and only
+> parsed configs reach the writer), so the scanner only handles well-formed constructs.
+> Verified: 6 unit cases (nested-array, multi-line string, inline-table array, parent table,
+> EOF block, non-mcp survival) + end-to-end apply on the corrupting shape → result re-parses
+> as valid TOML with comments/profiles preserved and nested array intact; idempotent on re-run.
+
+Original analysis below, for the record:
+
 
 - `_strip_mcp_tables` (`reconcile_mcp.py`) decides "am I inside an `[mcp_servers.*]`
   block" purely by whether a stripped line *starts with `[`*.
