@@ -1,0 +1,7 @@
+# Normalize line endings in the repo. Without this, INSTALL.sh can be committed with
+# CRLF from a Windows editor and then fails on macOS/Linux with errors like
+# "/usr/bin/env: 'bash\r': No such file or directory". Force LF for scripts so
+# `bash INSTALL.sh` works everywhere regardless of who edited it on what OS.
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf

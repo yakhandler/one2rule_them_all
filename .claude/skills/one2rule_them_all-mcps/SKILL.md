@@ -50,8 +50,12 @@ Never start with `--apply`. Run the default dry-run so you and the user can see 
 what would change:
 
 ```
-python <skill_dir>/scripts/reconcile_mcp.py
+python3 <skill_dir>/scripts/reconcile_mcp.py
 ```
+
+> Use `python3` on macOS/Linux; on Windows use `python` (or `py -3`). The engine needs
+> Python 3.11+ — on an older interpreter the JSON clients still sync, but Codex is skipped
+> (no stdlib `tomllib`).
 
 The script auto-discovers each client's config from standard locations (see
 `references/client-config-paths.md`). It only considers clients whose config file
@@ -89,7 +93,7 @@ Once the plan looks right and any conflicts are resolved, get the user's go-ahea
 run with `--apply` (carry over the same `--prefer` you used in the plan):
 
 ```
-python <skill_dir>/scripts/reconcile_mcp.py --apply [--prefer <keys>]
+python3 <skill_dir>/scripts/reconcile_mcp.py --apply [--prefer <keys>]
 ```
 
 Report back: which files changed, what was added to each, and where the backups were

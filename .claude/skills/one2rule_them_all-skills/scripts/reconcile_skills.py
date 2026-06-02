@@ -48,7 +48,7 @@ Frontmatter quirk handling (the "little quirks" skills have):
 Default run = dry-run "plan": prints what WOULD change and writes nothing.
 Pass --apply to actually write (after backing up).
 
-Run `python reconcile_skills.py --help` for options.
+Run `python3 reconcile_skills.py --help` for options (use `python` / `py -3` on Windows).
 """
 from __future__ import annotations
 

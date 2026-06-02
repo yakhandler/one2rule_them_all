@@ -43,17 +43,20 @@ Where the two engines **diverge** (because the problems differ):
 
 There is no build/lint step and no package. Work is: run an engine, read its plan, apply.
 
+Invoke with Python 3.11+: `python3` on macOS/Linux (where there's usually no bare `python`),
+`python` or `py -3` on Windows. The examples below use `python3`.
+
 ```bash
 # Plan (dry-run) and apply — MCP servers
-python .claude/skills/one2rule_them_all-mcps/scripts/reconcile_mcp.py
-python .claude/skills/one2rule_them_all-mcps/scripts/reconcile_mcp.py --apply [--prefer cursor,claude-code]
+python3 .claude/skills/one2rule_them_all-mcps/scripts/reconcile_mcp.py
+python3 .claude/skills/one2rule_them_all-mcps/scripts/reconcile_mcp.py --apply [--prefer cursor,claude-code]
 
 # Plan (dry-run) and apply — Agent Skills
-python .claude/skills/one2rule_them_all-skills/scripts/reconcile_skills.py
-python .claude/skills/one2rule_them_all-skills/scripts/reconcile_skills.py --apply [--prefer claude] [--include cursor]
+python3 .claude/skills/one2rule_them_all-skills/scripts/reconcile_skills.py
+python3 .claude/skills/one2rule_them_all-skills/scripts/reconcile_skills.py --apply [--prefer claude] [--include cursor]
 
 # Machine-readable output (useful for reasoning about a plan programmatically)
-python <engine> --json
+python3 <engine> --json
 ```
 
 Common flags: `--only`/`--exclude` (limit clients/tools), `--create-missing` (seed configs/roots that don't exist), `--json`. skills adds `--include`, `--only-skill`/`--skip-skill`, `--max-desc`/`--max-name`.
@@ -66,11 +69,11 @@ Tests are sandbox-based, not pytest, and there is **no committed fixtures harnes
 
 ```bash
 # skills — a fake home is enough; author a minimal <sb>/home/.claude/skills/demo/SKILL.md, then:
-python .claude/skills/one2rule_them_all-skills/scripts/reconcile_skills.py --home <sb>/home          # plan
-python .claude/skills/one2rule_them_all-skills/scripts/reconcile_skills.py --home <sb>/home --apply  # then re-run: expect "already in sync"
+python3 .claude/skills/one2rule_them_all-skills/scripts/reconcile_skills.py --home <sb>/home          # plan
+python3 .claude/skills/one2rule_them_all-skills/scripts/reconcile_skills.py --home <sb>/home --apply  # then re-run: expect "already in sync"
 
 # mcps — MUST also sandbox appdata/localappdata or it touches your real Claude Desktop config
-python .claude/skills/one2rule_them_all-mcps/scripts/reconcile_mcp.py --home <sb>/home --appdata <sb>/appdata --localappdata <sb>/localappdata
+python3 .claude/skills/one2rule_them_all-mcps/scripts/reconcile_mcp.py --home <sb>/home --appdata <sb>/appdata --localappdata <sb>/localappdata
 ```
 
 Throwaway sandboxes plus `.skill-backups/` and `*.bak-*` are gitignored.

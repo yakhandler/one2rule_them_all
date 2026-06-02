@@ -32,9 +32,11 @@ Then, in any tool that has the skill, just ask — e.g. _"sync my MCP servers ac
 Each skill drives a Python script under its `scripts/` folder. It **always plans before it writes** (the agent does this for you):
 
 ```bash
-python <skill_dir>/scripts/reconcile_mcp.py            # dry-run plan
-python <skill_dir>/scripts/reconcile_mcp.py --apply    # apply changes
+python3 <skill_dir>/scripts/reconcile_mcp.py            # dry-run plan
+python3 <skill_dir>/scripts/reconcile_mcp.py --apply    # apply changes
 ```
+
+Use `python3` on macOS/Linux; on Windows use `python` (or `py -3`). Either way it must be Python 3.11+ (see Requirements).
 
 ## Safety model
 
@@ -78,7 +80,12 @@ Backups are never pruned automatically — delete old `.bak-*` files and `.skill
 
 ## Requirements
 
-- Python 3.11+ (uses the stdlib `tomllib` for Codex's config).
+- **Python 3.11+** — the engines use the stdlib `tomllib` (added in 3.11) to read Codex's
+  `config.toml`. On an older Python the JSON clients still sync, but **Codex is skipped**.
+- Heads-up for macOS/Linux: the *system* Python is often too old, and there may be no bare
+  `python` at all. macOS Command Line Tools ships 3.9 (and only as `python3`); Ubuntu 22.04
+  LTS ships 3.10. Install a current Python first — e.g. `brew install python@3.12`, `pyenv`,
+  or your distro's `python3.12` package — and invoke it as `python3`.
 
 ## Layout
 

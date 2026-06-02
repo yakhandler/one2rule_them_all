@@ -89,8 +89,10 @@ See `references/skill-paths.md` for the full path/format/quirk details.
 Never start with `--apply`. Run the default dry-run:
 
 ```
-python <skill_dir>/scripts/reconcile_skills.py
+python3 <skill_dir>/scripts/reconcile_skills.py
 ```
+
+> Use `python3` on macOS/Linux; on Windows use `python` (or `py -3`). Needs Python 3.11+.
 
 Summarize for the user: how many tools were found, how many unique skills make up the
 union, and which skills are missing from which tools (the "Skill coverage" section). The
@@ -129,7 +131,7 @@ Once the plan looks right and conflicts are resolved, get the go-ahead and run w
 `--apply` (carry over the same `--prefer`/`--include` you used in the plan):
 
 ```
-python <skill_dir>/scripts/reconcile_skills.py --apply [--prefer <keys>] [--include cursor]
+python3 <skill_dir>/scripts/reconcile_skills.py --apply [--prefer <keys>] [--include cursor]
 ```
 
 Report which tools changed, what was added/changed, and that backups are under each root's
