@@ -7,17 +7,18 @@ are what you pass to `--only` / `--exclude` / `--include` / `--prefer`.
 | Key                            | Tool                                  | Skills root                 | Role                           |
 | ------------------------------ | ------------------------------------- | --------------------------- | ------------------------------ |
 | `claude`                       | Claude Code / Desktop                 | `~/.claude/skills`          | read + write                   |
-| `codex`                        | OpenAI Codex                          | `~/.codex/skills`           | read + write                   |
 | `gemini` (alias `antigravity`) | Gemini CLI + Antigravity (CLI & IDE)  | `~/.gemini/skills`          | read + write                   |
-| `agents`                       | `.agents` standard                    | `~/.agents/skills`          | read + write, auto-created     |
+| `agents` (alias `codex`)       | `.agents` standard + OpenAI Codex     | `~/.agents/skills`          | read + write, auto-created     |
 | `cursor`                       | Cursor IDE                            | `~/.cursor/skills` (native) | read-only source               |
 
 - **`gemini` / `antigravity`** are one entry: the Gemini CLI and both Antigravity surfaces
   (the `agy` CLI and the IDE) all read the *same* `~/.gemini/skills` directory. Either key
   selects it.
 - **`agents`** is the vendor-neutral [.agents standard](https://dotagentsprotocol.com/),
-  read by Antigravity, Cursor, OpenCode, and others. It is **created if missing** so the
-  standard location always exists.
+  read by Antigravity, Cursor, OpenCode, and others. It is also **OpenAI Codex's** user
+  skill location ([Codex docs](https://developers.openai.com/codex/skills)): Codex reads user
+  skills from `~/.agents/skills`, **not** `~/.codex/skills`, so the old `codex` key is now an
+  alias for this entry. It is **created if missing** so the standard location always exists.
 - **`cursor`** is read-only: Cursor natively loads the other tools' folders
   ([Cursor docs](https://cursor.com/docs/skills)), so once they're synced it already sees the
   union. The engine **reads** `~/.cursor/skills` (so Cursor-authored skills propagate out) but

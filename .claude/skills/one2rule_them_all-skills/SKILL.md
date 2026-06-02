@@ -49,9 +49,8 @@ discovery, identity, frontmatter adaptation, backups, and idempotency correctly.
 | Tool key                       | Skills root                                            | Role         |
 | ------------------------------ | ------------------------------------------------------ | ------------ |
 | `claude`                       | `~/.claude/skills`                                     | read + write |
-| `codex`                        | `~/.codex/skills`                                      | read + write |
 | `gemini` (alias `antigravity`) | `~/.gemini/skills` — Gemini CLI **and** Antigravity (CLI & IDE) | read + write |
-| `agents`                       | `~/.agents/skills` (.agents standard)                  | read + write, **auto-created** |
+| `agents` (alias `codex`)       | `~/.agents/skills` — .agents standard **and** OpenAI Codex      | read + write, **auto-created** |
 | `cursor`                       | `~/.cursor/skills` (native)                            | **read-only source** |
 
 The Gemini CLI and both Antigravity surfaces (`agy` CLI and IDE) read the *same* `~/.gemini/skills`
@@ -59,16 +58,19 @@ directory, so they're one entry. The old key `antigravity` still works as an ali
 `--exclude` / `--include` / `--prefer`.
 
 `~/.agents/skills` is the vendor-neutral [.agents standard](https://dotagentsprotocol.com/)
-location (read by Antigravity, Cursor, OpenCode, and others). It's a first-class source and
-destination, and is **created if missing** so the standard location always exists.
+location (read by Antigravity, Cursor, OpenCode, and others). It's also where **OpenAI Codex**
+reads user skills ([Codex docs](https://developers.openai.com/codex/skills)) — Codex uses
+`~/.agents/skills`, **not** `~/.codex/skills` — so the old `codex` key is now an alias for this
+entry. It's a first-class source and destination, and is **created if missing** so the standard
+location always exists.
 
 ### Cursor is a read-only source — and why
 
 Per [Cursor's docs](https://cursor.com/docs/skills), Cursor **natively loads skills from the
-other tools' folders** for compatibility — `~/.claude/skills`, `~/.codex/skills`, plus
-`~/.agents/skills` and its own `~/.cursor/skills`. So once this tool syncs the union across
-Claude/Codex/Antigravity, **Cursor already sees the full union for free** — nothing needs to
-be written into a Cursor folder. The reconciler therefore:
+other tools' folders** for compatibility — `~/.claude/skills`, `~/.agents/skills` (which Codex
+also reads), and its own `~/.cursor/skills`. So once this tool syncs the union across
+Claude/Gemini/Antigravity and the `.agents` standard, **Cursor already sees the full union for
+free** — nothing needs to be written into a Cursor folder. The reconciler therefore:
 
 - **Reads** `~/.cursor/skills` (Cursor's *native* folder) as a source, so any skill you author
   directly in Cursor propagates *out* to the other tools.
@@ -122,7 +124,7 @@ involved):
 Three ways forward:
 - **Pick a winner** — re-run with `--prefer`, a comma-separated tool priority list. For
   each conflicting skill, the first tool in the list that has it wins and its version is
-  copied everywhere. Example: `--prefer claude,codex`.
+  copied everywhere. Example: `--prefer claude,gemini`.
 - **Edit to match** — the user reconciles the two copies by hand, then you re-run.
 - **Skip them for now** — re-run with `--skip-conflicts` to sync everything *except* the
   conflicting skills, leaving each tool's own copy of those untouched (nothing is
